@@ -191,19 +191,54 @@
   var HANDSHAKE_TIMEOUT = 600;
   var STORAGE_PREFIX = "html-view-progress:";
 
-  var state = {
-    currentQuestion: 0,
-    answers: {},
-    scrollY: 0,
-    scrollPercent: 0,
-    readDone: false,
-    sectionProgress: {},
-    notes: [],
-    annotations: [],
-    marks: [],
-    strokes: [],
-    ui: { pager: { top: 0.5, right: 20 }, inkbar: { edge: "bottom" } },
-    meta: {},
+  var state = freshState();
+
+  /**
+   * 一份干净的进度状态。
+   *
+   * page 宿主切换 MD 文件时要用它重置——不能把上一篇的答案带到下一篇。
+   */
+  function freshState() {
+    return {
+      currentQuestion: 0,
+      answers: {},
+      scrollY: 0,
+      scrollPercent: 0,
+      readDone: false,
+      sectionProgress: {},
+      notes: [],
+      annotations: [],
+      marks: [],
+      strokes: [],
+      ui: { pager: { top: 0.5, right: 20 }, inkbar: { edge: "bottom" } },
+      meta: {},
+    };
+  }
+
+  // ---------------------------------------------------------------- 宿主适配层
+  //
+  // 同一份 runtime 要能跑在两种地方：
+  //   iframe 宿主 —— 单文件 HTML 页面（模板页 / 外部网页）
+  //   page   宿主 —— Obsidian 主页面里的 MD 阅读视图
+  //
+  // 两种宿主只有四件事不同：正文根在哪、滚动容器在哪、事件怎么监听、
+  // 数据怎么进出。抽成 HOST 之后，下面的业务逻辑一行都不用改。
+  //
+  // page 宿主是「单实例 + 反复 attach」：Obsidian 可以同时开着好几篇 MD，
+  // runtime 只有一个，靠 attachPage() 切换当前服务的那一篇。
+  //
+  // 宿主信息在 runtime 被注入**之前**由插件写到 window.__HVV_HOST__ 上，
+  // 这样 runtime 一跑起来就知道自己是谁。
+  var BOOT = window.__HVV_HOST__ || null;
+
+  var HOST = {
+    kind: BOOT && BOOT.kind === "page" ? "page" : "iframe",
+    root: (BOOT && BOOT.root) || null,
+    scroll: (BOOT && BOOT.scroll) || null,
+    transport: (BOOT && BOOT.transport) || null,
+    paused: false, // 临时关停：所有交互让位
+    uiRoot: null, // page 宿主下 runtime 界面元素的专用壳
+    prevRoot: null, // 上一次服务的正文根（换篇时要摘掉标记）
   };
 
   var mode = "unknown"; // unknown | plugin | fallback
@@ -215,6 +250,69 @@
   var sectionRanges = [];
   var lastAnswerSnapshot = {};
   var lastMetaQuestionCount = null;
+
+  // ---------------------------------------------------------------- 宿主适配层
+  //
+  // 同一份 runtime 要能跑在两种地方：
+  //   iframe 宿主 —— 单文件 HTML 页面（模板页 / 外部网页）
+  //   page   宿主 —— Obsidian 主页面里的 MD 阅读视图
+  //
+  // 两种宿主只有四件事不同：正文根在哪、滚动容器在哪、事件怎么监听、
+  // 数据怎么进出。抽成 HOST 之后，下面的业务逻辑一行都不用改。
+  //
+  // page 宿主是「单实例 + 反复 attach」：Obsidian 可以同时开着好几篇 MD，
+  // runtime 只有一个，靠 attach() 切换当前服务的那一篇。
+  /** 当前正文根（page 宿主由外部指定） */
+  function hostRoot() {
+    return HOST.root || null;
+  }
+
+  /** 事件是否落在当前正文根里（page 宿主用来避免劫持 Obsidian 自己的 UI） */
+  function inHostScope(target) {
+    if (HOST.kind !== "page") return true;
+    // 临时关停：所有交互让位，MD 正文恢复成完全可点选、可编辑
+    if (HOST.paused) return false;
+    if (!HOST.root) return false;
+    if (!target) return false;
+    try {
+      return HOST.root.contains(target);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /**
+   * runtime 自己的界面元素挂在哪。
+   *
+   * iframe 宿主：直接挂 body。
+   * page 宿主：挂一个专用的 wrapper div——
+   *   不去动 Obsidian 的 body class（那是人家应用的骨架），
+   *   同时把 CSS 变量和 .is-ink 状态都收在这个壳里，不污染 Obsidian 自身样式。
+   */
+  function hostUiRoot() {
+    if (HOST.kind !== "page") return document.body;
+    if (!HOST.uiRoot) {
+      var d = document.createElement("div");
+      d.className = "hvv-page-root";
+      d.setAttribute("data-hvv-page-root", "1");
+      document.body.appendChild(d);
+      HOST.uiRoot = d;
+    }
+    return HOST.uiRoot;
+  }
+
+  /** 焦点是否在当前正文根里（键盘事件用） */
+  function hostHasFocus() {
+    if (HOST.kind !== "page") return true;
+    if (!HOST.root) return false;
+    var a = document.activeElement;
+    if (!a) return false;
+    try {
+      return HOST.root.contains(a);
+    } catch (e) {
+      return false;
+    }
+  }
 
   // ---------------------------------------------------------------- 工具
 
@@ -357,6 +455,16 @@
     "border:1px solid rgba(0,0,0,.2);background:rgba(255,255,255,.94);color:#333;font-size:20px;line-height:1;",
     "cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.2);padding:0;}",
     ".hvv-ink-fab.is-on{background:var(--hvv-accent,#4a7bd5);color:#fff;border-color:transparent;}",
+    // 「静止的悬浮开关」：常驻右下角、在触笔按钮正上方，不随页面滚动。
+    // 点一下临时关停插件（MD 正文就能正常选中和编辑了），再点一下恢复。
+    ".hvv-halt{position:fixed;right:18px;bottom:70px;z-index:78;width:44px;height:44px;border-radius:50%;",
+    "border:1px solid rgba(0,0,0,.2);background:rgba(255,255,255,.94);color:#333;font-size:17px;line-height:1;",
+    "cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.2);padding:0;}",
+    ".hvv-halt.is-paused{background:var(--hvv-accent,#4a7bd5);color:#fff;border-color:transparent;}",
+    // 临时关停：runtime 的界面全部让位，只有开关按钮自己还能点
+    ".hvv-root.is-paused :is(.hvv-pager,.hvv-panel,.hvv-panel-tab,.hvv-ink-fab,.hvv-inkbar,",
+    ".hvv-brushgrid,.hvv-overlay,.hvv-pop,.hvv-seltool,.hvv-zoomtag,.hvv-status){pointer-events:none;opacity:.18;}",
+    ".hvv-root.is-paused .hvv-halt{pointer-events:auto;opacity:1;}",
     ".hvv-inkbar{position:fixed;z-index:79;display:none;align-items:center;gap:4px;padding:5px;border-radius:12px;",
     "background:rgba(255,255,255,.96);border:1px solid rgba(0,0,0,.16);box-shadow:0 4px 18px rgba(0,0,0,.2);",
     "touch-action:none;}",
@@ -402,6 +510,15 @@
 
   function post(type, payload) {
     if (mode === "fallback") return;
+    // page 宿主：直接交给宿主（Obsidian 侧），不走 postMessage
+    if (HOST.transport) {
+      try {
+        HOST.transport.post(type, payload);
+      } catch (e) {
+        /* ignore */
+      }
+      return;
+    }
     try {
       window.parent.postMessage(
         { type: type, payload: payload, token: TOKEN },
@@ -412,34 +529,45 @@
     }
   }
 
-  function onMessage(event) {
-    var data = event.data;
-    if (!isPlainObject(data) || typeof data.type !== "string") return;
-    // 页面侧也校验令牌（插件注入时才有）
-    if (TOKEN && data.token !== TOKEN) return;
-    if (data.type === MSG.PROGRESS) {
-      var p = isPlainObject(data.payload) ? data.payload : {};
-      var inner = isPlainObject(p.payload) ? p.payload : p;
+  /**
+   * 处理来自宿主的指令（与「消息来自哪个窗口」无关，只看类型和内容）。
+   *
+   * iframe 宿主：window "message" 事件 → onMessage → 这里
+   * page 宿主：宿主直接调用 → 这里
+   */
+  function handleIncoming(type, rawPayload) {
+    var p = isPlainObject(rawPayload) ? rawPayload : {};
+    var inner = isPlainObject(p.payload) ? p.payload : p;
+    if (type === MSG.PROGRESS) {
       enterPluginMode();
       applyProgress(inner);
       return;
     }
-    if (data.type === MSG.ACK) {
-      var ack = isPlainObject(data.payload) ? data.payload : {};
+    if (type === MSG.ACK) {
+      var ack = isPlainObject(p.payload) ? p.payload : {};
       if (!ack.ok) {
         // 成功不再弹提示：插件底栏已经显示「已保存于 HH:MM:SS」
         showStatus("保存失败：" + (ack.error || "未知错误"), true);
       }
       return;
     }
-    if (data.type === MSG.SELFTEST) {
-      runSelftest(isPlainObject(data.payload) ? data.payload : {});
+    if (type === MSG.SELFTEST) {
+      // 自检请求是单层载荷（PROGRESS 才是双层包裹的）
+      runSelftest(p);
       return;
     }
-    if (data.type === MSG.PROBE) {
+    if (type === MSG.PROBE) {
       post(MSG.STATE, collectPayload());
       return;
     }
+  }
+
+  function onMessage(event) {
+    var data = event.data;
+    if (!isPlainObject(data) || typeof data.type !== "string") return;
+    // 页面侧也校验令牌（插件注入时才有）
+    if (TOKEN && data.token !== TOKEN) return;
+    handleIncoming(data.type, data.payload);
   }
 
   function enterPluginMode() {
@@ -456,6 +584,11 @@
   // ---------------------------------------------------------------- 握手
 
   function startHandshake() {
+    // page 宿主：进度由宿主直接送进来（attach 时给），不需要握手
+    if (HOST.kind === "page") {
+      mode = "plugin";
+      return;
+    }
     if (window.parent === window) {
       enterFallbackMode("当前不在自定义 HTML 视图，进度无法跨设备同步");
       return;
@@ -551,6 +684,8 @@
   var scrollHostCache;
 
   function scrollHost() {
+    // page 宿主：滚动容器由宿主指定（Obsidian 的阅读视图自己滚）
+    if (HOST.kind === "page") return HOST.scroll || null;
     if (scrollHostCache !== undefined) return scrollHostCache;
     scrollHostCache = null;
     try {
@@ -653,6 +788,8 @@
    * 保证翻页、标注、手写这些功能在没有 #content 的文件里也能用。
    */
   function contentRoot() {
+    // page 宿主：正文根由宿主指定（MD 阅读视图容器）
+    if (HOST.kind === "page") return HOST.root || document.body;
     return $("#content") || $("main") || $("article") || document.body;
   }
 
@@ -980,11 +1117,11 @@
     if (!zone) {
       zone = document.createElement("section");
       zone.id = "html-interaction-zone";
-      document.body.appendChild(zone);
+      hostUiRoot().appendChild(zone);
     } else if (zone.parentNode !== document.body) {
       // 旧版模板在正文流里预留了这个占位，挪到 body 下：
       // 面板要脱离文档流，不能留在正文里（否则会被页面的网格排到右列去）
-      document.body.appendChild(zone);
+      hostUiRoot().appendChild(zone);
     }
     // 注意：只能「缺了才加」，不能整个 className 覆盖——
     // 覆盖会把 is-on（展开态）一起抹掉，开关就失灵了
@@ -1013,7 +1150,7 @@
       tab.setAttribute("data-hvv-panel-tab", "1");
       tab.setAttribute("aria-label", "打开笔记与标注");
       tab.textContent = "笔记";
-      document.body.appendChild(tab);
+      hostUiRoot().appendChild(tab);
     }
     return zone;
   }
@@ -1259,7 +1396,7 @@
       '<button data-hvv-pop-cancel>取消</button>' +
       '<button class="hvv-ok" data-hvv-pop-ok>确定</button>' +
       '</div>';
-    document.body.appendChild(pop);
+    hostUiRoot().appendChild(pop);
     return pop;
   }
 
@@ -1313,9 +1450,11 @@
     selTool.innerHTML =
       '<button data-hvv-sel="comment">💬 评注</button>' +
       '<button data-hvv-sel="doubt">❓ 存疑</button>';
-    document.body.appendChild(selTool);
+    hostUiRoot().appendChild(selTool);
 
-    document.addEventListener("mouseup", function () {
+    document.addEventListener("mouseup", function (e) {
+      // page 宿主：只在当前正文根内响应，别去动 Obsidian 自己的界面
+      if (!inHostScope(e && e.target)) return;
       window.setTimeout(function () {
         var sel = window.getSelection();
         var text = sel ? sel.toString().trim() : "";
@@ -1353,6 +1492,7 @@
     });
 
     document.addEventListener("mousedown", function (e) {
+      if (!inHostScope(e.target)) return;
       if (!selTool.contains(e.target)) selTool.classList.remove("is-on");
     });
   }
@@ -1449,7 +1589,7 @@
     pager.innerHTML =
       '<button class="hvv-pager-btn" data-hvv-dir="-1" aria-label="向上翻页">▲</button>' +
       '<button class="hvv-pager-btn" data-hvv-dir="1" aria-label="向下翻页">▼</button>';
-    document.body.appendChild(pager);
+    hostUiRoot().appendChild(pager);
     applyPagerPosition();
 
     /**
@@ -1576,6 +1716,7 @@
       "touchstart",
       function (e) {
         touchFlip = null;
+        if (!inHostScope(e.target)) return;
         if (ink.active) return;
         if (!e.touches || e.touches.length !== 1) return;
         var t = e.touches[0];
@@ -1627,7 +1768,7 @@
       '<span class="hvv-overlay-hint">双击：等宽 → 全屏 ｜ ESC / 点背景关闭</span>';
     overlayImg = document.createElement("img");
     overlay.appendChild(overlayImg);
-    document.body.appendChild(overlay);
+    hostUiRoot().appendChild(overlay);
 
     overlay.addEventListener("click", function (e) {
       if (e.target === overlay) closeOverlay();
@@ -1708,6 +1849,8 @@
   }
 
   document.addEventListener("keydown", function (e) {
+    // page 宿主：只在焦点落在当前正文根里时才接管键盘
+    if (!hostHasFocus()) return;
     if (e.key === "Escape" && overlay && overlay.classList.contains("is-on")) {
       closeOverlay();
       return;
@@ -2034,7 +2177,7 @@
     if (root.parentNode) {
       root.parentNode.insertBefore(inkSpacer, root.nextSibling);
     } else {
-      document.body.appendChild(inkSpacer);
+      hostUiRoot().appendChild(inkSpacer);
     }
     return inkSvg;
   }
@@ -2099,7 +2242,7 @@
       '<button data-hvv-ink="pen" title="强制笔模式：手指只滚动，笔负责画">🎯</button>' +
       '<button data-hvv-ink="scroll" title="临时放开页面滚动">☝</button>' +
       '<button data-hvv-ink="exit" title="退出画笔模式">✕</button>';
-    document.body.appendChild(bar);
+    hostUiRoot().appendChild(bar);
     inkBar = bar;
     return bar;
   }
@@ -2120,7 +2263,7 @@
         g.appendChild(b);
       });
     });
-    document.body.appendChild(g);
+    hostUiRoot().appendChild(g);
     inkGrid = g;
     return g;
   }
@@ -2132,8 +2275,43 @@
     b.setAttribute("data-hvv-ink", "fab");
     b.textContent = "✏️";
     b.title = "手写标注（点按进入 / 退出画笔模式）";
-    document.body.appendChild(b);
+    hostUiRoot().appendChild(b);
     inkFab = b;
+    return b;
+  }
+
+  var haltBtn = null;
+
+  /**
+   * 「静止的悬浮开关」。
+   *
+   * 常驻右下角、在触笔按钮正上方，不随页面滚动。
+   * 默认是「开着」的（按钮显示暂停图标，点一下会关停）；
+   * 关停之后按钮依然可点，否则就再也开不回来了。
+   */
+  function ensureHaltButton() {
+    if (haltBtn) return haltBtn;
+    var b = document.createElement("button");
+    b.className = "hvv-halt";
+    b.setAttribute("data-hvv-halt", "1");
+    b.textContent = "⏸";
+    b.title = "临时关停插件（关掉后可以正常选中和编辑正文）";
+    b.addEventListener("click", function (e) {
+      e.stopPropagation();
+      var now = setPaused(!HOST.paused);
+      haltBtn.classList.toggle("is-paused", now);
+      haltBtn.textContent = now ? "▶" : "⏸";
+      haltBtn.title = now ? "恢复插件" : "临时关停插件（关掉后可以正常选中和编辑正文）";
+      if (typeof HOST.onToggle === "function") {
+        try {
+          HOST.onToggle(now);
+        } catch (err) {
+          /* ignore */
+        }
+      }
+    });
+    hostUiRoot().appendChild(b);
+    haltBtn = b;
     return b;
   }
 
@@ -2144,7 +2322,7 @@
     t.innerHTML =
       '<span data-hvv-zoom-label>⤢ 200%</span>' +
       '<button data-hvv-ink="zoom-reset">还原</button>';
-    document.body.appendChild(t);
+    hostUiRoot().appendChild(t);
     inkZoomTag = t;
     return t;
   }
@@ -2236,7 +2414,7 @@
   function inkSetActive(on) {
     if (ink.active === on) return;
     ink.active = on;
-    document.body.classList.toggle("is-ink", on);
+    hostUiRoot().classList.toggle("is-ink", on);
     if (inkFab) {
       inkFab.textContent = on ? "✕" : "✏️";
       inkFab.classList.toggle("is-on", on);
@@ -2294,7 +2472,7 @@
       '<h4 data-hvv-dlg-title></h4>' +
       '<div data-hvv-dlg-msg class="hvv-dlg-msg"></div>' +
       '<div class="hvv-dlg-actions" data-hvv-dlg-actions></div>';
-    document.body.appendChild(d);
+    hostUiRoot().appendChild(d);
     inkDialog = d;
     return d;
   }
@@ -2699,12 +2877,16 @@
     inkSvg.addEventListener("pointercancel", inkOnPointerUp);
 
     // 双击：画笔模式下不落笔，改为放大
-    document.addEventListener("dblclick", inkOnDblClick);
+    document.addEventListener("dblclick", function (e) {
+      if (!inHostScope(e.target)) return;
+      inkOnDblClick(e);
+    });
 
     // 画笔模式锁滚动；「☝ 滚动」可临时放开
     document.addEventListener(
       "touchmove",
       function (e) {
+        if (!inHostScope(e.target)) return;
         if (ink.active && !ink.scrollMode) e.preventDefault();
       },
       { passive: false },
@@ -2712,6 +2894,7 @@
     document.addEventListener(
       "wheel",
       function (e) {
+        if (!inHostScope(e.target)) return;
         if (ink.active && !ink.scrollMode) e.preventDefault();
       },
       { passive: false },
@@ -2784,6 +2967,7 @@
       inkUpdateBarState();
     });
     document.addEventListener("pointerdown", function (e) {
+      if (!inHostScope(e.target)) return;
       if (inkGrid && !inkGrid.contains(e.target)) inkGrid.classList.remove("is-on");
     });
 
@@ -2855,6 +3039,7 @@
 
   function setupQuestionEvents() {
     document.addEventListener("change", function (e) {
+      if (!inHostScope(e.target)) return;
       var t = e.target;
       if (t && (t.type === "radio" || t.type === "checkbox")) {
         scheduleSave();
@@ -2862,6 +3047,7 @@
       if (t && t.classList && t.classList.contains("q-doubt")) scheduleSave();
     });
     document.addEventListener("input", function (e) {
+      if (!inHostScope(e.target)) return;
       var t = e.target;
       if (!t) return;
       if (
@@ -2915,19 +3101,37 @@
   }
 
   var scrollTimer = null;
+  var scrollBoundTo = null;
+
+  function onScrollEvent() {
+    if (scrollTimer) return;
+    scrollTimer = window.setTimeout(function () {
+      scrollTimer = null;
+      updateCurrentQuestion();
+      if (updateSectionProgress()) scheduleSave();
+    }, 250);
+  }
+
+  /**
+   * 把滚动监听绑到正确的目标上。
+   *
+   * iframe 宿主：window 自己滚。
+   * page 宿主：MD 阅读视图是**容器**在滚，而 scroll 事件不冒泡，
+   *   所以必须直接绑到那个容器上，否则章节进度永远不更新。
+   */
+  function bindScrollTarget(el) {
+    if (scrollBoundTo === el) return;
+    if (scrollBoundTo) {
+      scrollBoundTo.removeEventListener("scroll", onScrollEvent);
+    }
+    scrollBoundTo = el || null;
+    if (scrollBoundTo) {
+      scrollBoundTo.addEventListener("scroll", onScrollEvent, { passive: true });
+    }
+  }
+
   function setupScrollEvents() {
-    window.addEventListener(
-      "scroll",
-      function () {
-        if (scrollTimer) return;
-        scrollTimer = window.setTimeout(function () {
-          scrollTimer = null;
-          updateCurrentQuestion();
-          if (updateSectionProgress()) scheduleSave();
-        }, 250);
-      },
-      { passive: true },
-    );
+    bindScrollTarget(HOST.kind === "page" ? HOST.scroll : window);
     window.addEventListener("resize", function () {
       updateSectionProgress();
     });
@@ -2967,7 +3171,7 @@
       s = document.createElement("div");
       s.id = "hvv-status";
       s.className = "hvv-status";
-      document.body.appendChild(s);
+      hostUiRoot().appendChild(s);
     }
     return s;
   }
@@ -3110,10 +3314,13 @@
 
   function init() {
     injectStyles();
-    document.body.classList.add("hvv-root");
+    hostUiRoot().classList.add("hvv-root");
     // 给正文根打个标记：画笔模式禁选中和「正文在哪」都靠它，不用写死 #content
-    var root = contentRoot();
-    if (root && root !== document.body) root.classList.add("hvv-content-root");
+    // （page 宿主下正文根由 attachPage 决定，init 时还没有）
+    if (HOST.kind !== "page") {
+      var root = contentRoot();
+      if (root && root !== document.body) root.classList.add("hvv-content-root");
+    }
     readMeta();
     sectionRanges = computeSections();
     ensureZone();
@@ -3125,17 +3332,109 @@
     setupImages();
     setupScrollEvents();
     setupInk();
+    ensureHaltButton();
     renderZone();
     updateJudges();
     checkConsistency();
 
-    window.addEventListener("message", onMessage);
+    if (HOST.kind !== "page") {
+      window.addEventListener("message", onMessage);
+    }
     startHandshake();
+  }
+
+  // ---------------------------------------------------------------- page 宿主接口
+
+  /**
+   * 绑定到当前服务的那一篇 MD（page 宿主专用）。
+   *
+   * Obsidian 可以同时开着好几篇 MD，runtime 只有一个，
+   * 所以切标签页时不是「重新初始化」，而是「换一个服务对象」。
+   */
+  function attachPage(opts) {
+    opts = opts || {};
+    HOST.kind = "page";
+    HOST.root = opts.root || null;
+    HOST.scroll = opts.scroll || null;
+    if (opts.transport) HOST.transport = opts.transport;
+
+    // 换一篇 → 状态清零，不能把上一篇的答案带到下一篇
+    state = freshState();
+
+    // 正文根标记换地方
+    if (HOST.prevRoot && HOST.prevRoot !== HOST.root) {
+      HOST.prevRoot.classList.remove("hvv-content-root");
+    }
+    if (HOST.root) HOST.root.classList.add("hvv-content-root");
+    HOST.prevRoot = HOST.root;
+
+    // 滚动容器换了，滚动监听要跟着换
+    bindScrollTarget(HOST.scroll);
+
+    readMeta();
+    sectionRanges = computeSections();
+    renderZone();
+    applyMarks();
+    updateJudges();
+    inkRender();
+    mode = "plugin";
+    if (typeof opts.onReady === "function") opts.onReady();
+  }
+
+  /** 解除绑定（MD 标签页被关掉，或切到非 MD 视图） */
+  function detachPage() {
+    if (HOST.prevRoot) HOST.prevRoot.classList.remove("hvv-content-root");
+    HOST.prevRoot = null;
+    HOST.root = null;
+    HOST.scroll = null;
+    bindScrollTarget(null);
+    state = freshState();
+    renderZone();
+    inkRender();
+  }
+
+  /**
+   * 临时关停 / 恢复。
+   *
+   * 关停后：手写层、翻页键、选中批注、触屏分区翻页全部让位，
+   * MD 正文恢复成完全可点选、可编辑的状态。
+   * 只有右下角那个开关按钮本身仍然可点（否则关掉就再也开不回来了）。
+   */
+  function setPaused(on) {
+    HOST.paused = !!on;
+    hostUiRoot().classList.toggle("is-paused", HOST.paused);
+    if (haltBtn) {
+      haltBtn.classList.toggle("is-paused", HOST.paused);
+      haltBtn.textContent = HOST.paused ? "▶" : "⏸";
+      haltBtn.title = HOST.paused
+        ? "恢复插件"
+        : "临时关停插件（关掉后可以正常选中和编辑正文）";
+    }
+    if (HOST.paused) {
+      if (typeof inkExit === "function") {
+        try {
+          inkExit();
+        } catch (e) {
+          /* ignore */
+        }
+      }
+    }
+    return HOST.paused;
   }
 
   // 供自动化测试与外部脚本使用的接口
   window.__HTML_VIEW__ = {
     version: VERSION,
+    // ---- page 宿主（MD 阅读视图）专用接口 ----
+    attachPage: attachPage,
+    detachPage: detachPage,
+    setPaused: setPaused,
+    isPaused: function () {
+      return HOST.paused;
+    },
+    getHostKind: function () {
+      return HOST.kind;
+    },
     getMode: function () {
       return mode;
     },
