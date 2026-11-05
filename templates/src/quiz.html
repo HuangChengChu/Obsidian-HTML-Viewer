@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>示例答题页 · 单文件 HTML 视图</title>
+
+<!-- ===================================================================
+     AI 快速提取说明（请勿删除这段注释）
+     -------------------------------------------------------------------
+     用户交互数据统一位于本文件末尾的 script 区块（id = html-quiz-progress，
+     type = application/json）。
+
+     提取正则：/<script id="html-quiz-progress" type="application\/json">([\s\S]*?)<\/script>/
+     解析后重点字段：
+       answers[qid].value        用户作答（单选取字符串，多选取数组）
+       answers[qid].why          用户当时的思路（自由文本）
+       answers[qid].wrongReason  选错原因（自由文本，待 AI 归类）
+       answers[qid].doubt        是否标记为「不确定」
+       notes[] / annotations[] / marks[]  笔记 / 评注 / 位置标记
+       strokes[]                 手写涂鸦（SVG 路径；anchor.text 说明画在哪一段）
+       sectionProgress[sid]      章节阅读进度
+     题目与标准答案在 id = html-content-meta 的 script 区块内。
+     两者一起解析即可自行判分、推导复习清单，无需通读正文。
+     =================================================================== -->
+
+<style>
+  :root { --ink:#1f2328; --muted:#6a737d; --line:#e3e6ea; --accent:#4a7bd5; --paper:#fff; }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; padding: 0 18px 96px; color: var(--ink); background: var(--paper);
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB",
+      "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+    font-size: 17px; line-height: 1.85;
+  }
+  article#content { max-width: 42em; margin: 0 auto; }
+  h1 { font-size: 1.5em; line-height: 1.4; margin: 26px 0 6px; }
+  .meta { color: var(--muted); font-size: 0.82em; margin-bottom: 22px; }
+  .q { margin: 0 0 26px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; }
+  .q-title { margin: 0 0 10px; font-weight: 600; }
+  .q-options { display: flex; flex-direction: column; gap: 6px; }
+  .q-options label { display: flex; gap: 8px; align-items: flex-start; cursor: pointer; padding: 3px 0; }
+  .q-options input { margin-top: 7px; }
+  .q-why-wrap { margin-top: 10px; }
+  .q-why-wrap summary { cursor: pointer; color: var(--muted); font-size: 0.85em; }
+  .q-why { width: 100%; min-height: 64px; margin-top: 8px; padding: 8px 10px; font: inherit; font-size: 0.92em;
+    border: 1px solid var(--line); border-radius: 8px; resize: vertical; }
+  .q-wrong-reason { width: 100%; min-height: 52px; margin-top: 8px; padding: 8px 10px; font: inherit; font-size: 0.9em;
+    border: 1px solid #e6c9c9; border-radius: 8px; resize: vertical; }
+  .q-wrong-label { display: block; margin-top: 10px; font-size: 0.85em; color: #a4553f; }
+  .q-doubt-label { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; font-size: 0.85em; color: #8a5a12; }
+  article#content img { display:block; max-width:100%; max-height:min(240px,30vh); width:auto; height:auto;
+    margin:14px auto; border-radius:8px; }
+  @media (prefers-color-scheme: dark) {
+    :root { --ink:#dfe3e8; --muted:#8b949e; --line:#2d333b; --paper:#16191d; }
+    .q-why, .q-wrong-reason { background:#1c2026; }
+  }
+</style>
+</head>
+<body>
+
+<article id="content">
+
+  <h1>示例答题页：会记住你答过什么、想過什么</h1>
+  <p class="meta">演示用 · 每题都可以写「我的思路」，答错后还能补「为什么选错」</p>
+
+  <section data-sid="s1" data-stitle="基础题">
+    <h2>基础题</h2>
+
+    <div class="q" data-qid="q1">
+      <p class="q-title">Q1. 单文件 HTML 页面要保证「删掉文件就彻底干净」，进度数据必须存在哪里？</p>
+      <div class="q-options">
+        <label><input type="radio" name="q1" value="A"> A. 浏览器 localStorage</label>
+        <label><input type="radio" name="q1" value="B"> B. HTML 文件内部的 JSON 区块</label>
+        <label><input type="radio" name="q1" value="C"> C. Obsidian 的隐藏文件</label>
+      </div>
+      <details class="q-why-wrap">
+        <summary>✎ 我的思路</summary>
+        <textarea class="q-why" placeholder="当时为什么这么选…"></textarea>
+      </details>
+      <label class="q-doubt-label"><input type="checkbox" class="q-doubt"> 这题我不太确定</label>
+    </div>
+
+    <div class="q" data-qid="q2">
+      <p class="q-title">Q2. 下面哪些做法属于「让跨设备接力成立」的关键？（多选）</p>
+      <div class="q-options">
+        <label><input type="checkbox" name="q2" value="A"> A. 进度回写进 HTML 文件本身</label>
+        <label><input type="checkbox" name="q2" value="B"> B. 依赖 iCloud / NAS 同步同一个文件</label>
+        <label><input type="checkbox" name="q2" value="C"> C. 额外写一个 progress.json 配套</label>
+        <label><input type="checkbox" name="q2" value="D"> D. 用 localStorage 做跨设备同步</label>
+      </div>
+      <details class="q-why-wrap">
+        <summary>✎ 我的思路</summary>
+        <textarea class="q-why" placeholder="当时为什么这么选…"></textarea>
+      </details>
+    </div>
+  </section>
+
+  <section data-sid="s2" data-stitle="进阶题">
+    <h2>进阶题</h2>
+
+    <div class="q" data-qid="q3">
+      <p class="q-title">Q3. 插件给 iframe 不加 <code>allow-same-origin</code>，页面处于什么状态？</p>
+      <div class="q-options">
+        <label><input type="radio" name="q3" value="A"> A. 与 Obsidian 同源，可直接读取 DOM</label>
+        <label><input type="radio" name="q3" value="B"> B. 不透明源（opaque origin），跨源访问被浏览器拦截</label>
+        <label><input type="radio" name="q3" value="C"> C. 完全无法运行 JavaScript</label>
+      </div>
+      <details class="q-why-wrap">
+        <summary>✎ 我的思路</summary>
+        <textarea class="q-why" placeholder="当时为什么这么选…"></textarea>
+      </details>
+      <span class="q-wrong-label">❓ 为什么选错？</span>
+      <textarea class="q-wrong-reason" placeholder="概念混淆？审题失误？还是蒙的…（自由文本，交给 AI 归类）"></textarea>
+    </div>
+  </section>
+
+</article>
+
+
+<script id="html-content-meta" type="application/json">
+{
+  "title": "示例答题页：会记住你答过什么、想過什么",
+  "kind": "quiz",
+  "sections": [
+    { "id": "s1", "title": "基础题" },
+    { "id": "s2", "title": "进阶题" }
+  ],
+  "questions": [
+    { "id": "q1", "stem": "单文件 HTML 页面要保证「删掉文件就彻底干净」，进度数据必须存在哪里？",
+      "options": ["A. 浏览器 localStorage", "B. HTML 文件内部的 JSON 区块", "C. Obsidian 的隐藏文件"],
+      "answer": "B", "explain": "只有写回文件本身，才能靠同步软件接力，且删除文件后不留任何残留。" },
+    { "id": "q2", "stem": "下面哪些做法属于「让跨设备接力成立」的关键？（多选）",
+      "options": ["A. 进度回写进 HTML 文件本身", "B. 依赖 iCloud / NAS 同步同一个文件", "C. 额外写一个 progress.json 配套", "D. 用 localStorage 做跨设备同步"],
+      "answer": ["A", "B"], "explain": "C 破坏单文件闭环，D 只能单设备缓存。" },
+    { "id": "q3", "stem": "插件给 iframe 不加 allow-same-origin，页面处于什么状态？",
+      "options": ["A. 与 Obsidian 同源，可直接读取 DOM", "B. 不透明源（opaque origin），跨源访问被浏览器拦截", "C. 完全无法运行 JavaScript"],
+      "answer": "B", "explain": "不给 allow-same-origin，页面在 opaque origin 下运行，拿不到 Obsidian 的 DOM 与凭据。" }
+  ]
+}
+</script>
+
+<script id="html-quiz-progress" type="application/json">
+{
+  "currentQuestion": 0,
+  "answers": {},
+  "scrollY": 0,
+  "scrollPercent": 0,
+  "readDone": false,
+  "sectionProgress": {},
+  "notes": [],
+  "annotations": [],
+  "marks": [],
+  "strokes": [],
+  "ui": { "pager": { "top": 0.5, "right": 20 }, "inkbar": { "edge": "bottom" } },
+  "meta": { "schema": "html-quiz-progress/v1" }
+}
+</script>
+
+__RUNTIME__
+
+</body>
+</html>

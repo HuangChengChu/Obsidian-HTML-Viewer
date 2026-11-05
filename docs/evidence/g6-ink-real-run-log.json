@@ -1,0 +1,92 @@
+{
+  "gate": "G5 + G6 真机验收（真实 Obsidian 进程内）",
+  "date": "2026-11-05",
+  "obsidian": "1.12.7 / Electron 39.8.3 / Chrome 142.0.7444.265",
+  "g1_g4": {
+    "script": "node --test tests/*.test.mjs",
+    "passed": 106,
+    "total": 106,
+    "note": "含手写层 23 项 + 翻页专项 12 项"
+  },
+  "g5": {
+    "script": "scripts/verify-real.mjs",
+    "passed": 15,
+    "total": 15,
+    "note": "主方案回归：握手 / 写回 / 状态恢复 / 合并不重复 / 复习清单 / 资讯页；要求连跑三遍均通过（可重复性）",
+    "repeatability": "连跑 3 次均 15/15（同一 Obsidian 进程，不重启）"
+  },
+  "g6": {
+    "script": "scripts/verify-ink-real.mjs",
+    "passed": 26,
+    "total": 26,
+    "method": "Chrome DevTools Protocol 向真实 Obsidian 进程内的沙箱 iframe（OOPIF）派发 Input.dispatchMouseEvent({pointerType:\"pen\"}) 真实笔事件",
+    "launch": "Obsidian 需以 --remote-debugging-port=9333 启动",
+    "assertions": [
+      "CDP 已连上真实 Obsidian 进程",
+      "已挂上 Obsidian 主页面 session",
+      "已挂上 HTML 视图的沙箱 iframe session（真实页面）",
+      "页面运行时已就绪（手写层 API 存在）",
+      "真实点击右下角 ✏️ 进入画笔模式",
+      "已定位到正文段落（笔事件落点）",
+      "真实笔事件（pointerType=pen）画出 1 笔",
+      "页面已识别为笔设备（penSeen=true）",
+      "画布上确实渲染出笔迹节点",
+      "笔模式下手指不落笔（只滚动）",
+      "涂鸦已写回 HTML 文件的进度区",
+      "笔迹条目含路径 / 颜色 / 粗细 / 锚点",
+      "锚点指向被涂画的那一段",
+      "除数据区外，文件逐字节未变",
+      "重新打开后已重新挂上 iframe session",
+      "页面重新就绪",
+      "重新打开后笔迹自动恢复并重绘",
+      "重新打开后重新进入画笔模式",
+      "正文双击 → 2x 放大",
+      "再双击 → 立即回到 1x",
+      "已画出第 2 笔临时草稿",
+      "单击清屏只清临时草稿，已保存笔迹保留",
+      "双击清屏弹出确认框",
+      "双击清全部 → 已保存笔迹写墓碑（跨设备同步删除）",
+      "画面上笔迹已全部清空",
+      "插件收到手写层状态上报"
+    ]
+  },
+  "known_gaps": [
+    "无 UI 截图证据：macOS 图形会话处于锁屏状态，系统禁止截屏（peekaboo: Screen capture is unavailable while the macOS GUI session is locked）。文件层与消息层证据齐全。",
+    "无触控笔硬件：笔路径用 CDP 派发 pointerType=pen 的真实笔事件验证；电容笔的压感/笔锋未实现（明确排除）。",
+    "移动端真机未验：本机无 iOS/Android/鸿蒙设备，手写层在移动端的行为依赖 Chromium/WebKit 的 Pointer Events 支持。",
+    "鸿蒙：Obsidian 无官方鸿蒙原生客户端，鸿蒙支持只能给「取决于宿主」，无法保证。",
+    "验收脚本改用 auto-*.html 独立样例页后，demo-quiz.html / demo-news.html 不再被自动验收写入；两页内容为用户手测数据，脚本只读不写。"
+  ],
+  "g7": {
+    "script": "scripts/verify-ui-real.mjs",
+    "passed": 25,
+    "total": 25,
+    "note": "UI 改版真机验收：翻页键形态/真实点击翻页/触屏分区翻页/顶栏移除/底栏改版/折叠菜单",
+    "assertions_added_in_v120": [
+      "触屏点按答题选项 → 不翻页（点选项是答题，不是翻页）"
+    ],
+    "sample_pages": "html-view-test/auto-quiz.html（自动验收专用，与用户手测的 demo-* 完全隔离；验收页带 <meta name=\"hvv-test-id\"> 唯一标记）",
+    "repeatability": "与 G5 / G6 交叉连跑均通过"
+  },
+  "v120_plugin_fixes": [
+    "换页门控：换 iframe 时按住旧文档 beforeunload 的残留保存，等新页面握手再放行（旧数据不再复活）",
+    "视图状态持久化文件路径（getState 返回 path）+ setState 幂等（路径相同不重载）",
+    "打开文件按路径复用已有标签页（先看视图实例，再看标签页视图状态），不再每次新建标签页",
+    "验收脚本收尾自动关闭插件调试日志"
+  ],
+  "g8": {
+    "script": "scripts/verify-ext-real.mjs",
+    "passed": 28,
+    "total": 28,
+    "note": "外部 HTML（无 runtime 的普通网页）真机验收：自动注入 / 翻页 / 作答 / 标注 / 逐字节未变 / 重开恢复 / 无 #content 兜底",
+    "sample_pages": "html-view-test/auto-ext.html、auto-ext-minimal.html（自带 <meta name=\"hvv-test-id\"> 标记）"
+  },
+  "v130": [
+    "插件打开没有 runtime 的 HTML 时自动注入 runtime（磁盘文件不变）",
+    "runtime 单一真源：esbuild text loader 打进插件",
+    "正文根兜底链 #content → main → article → body（body 兜底时排除 nav/aside）",
+    "笔记与标注改成脱离文档流的悬浮面板 + 18px 把手（默认收起）",
+    "runtime 不再全局设 box-sizing，只约束自己的界面元素",
+    "滚动宿主抽象 scrollHost()：自定义滚动容器的页面也能翻页"
+  ]
+}

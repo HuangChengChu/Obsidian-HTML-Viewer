@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>示例资讯页 · 单文件 HTML 视图</title>
+
+<!-- ===================================================================
+     AI 快速提取说明（请勿删除这段注释）
+     -------------------------------------------------------------------
+     用户交互数据统一位于本文件末尾的 script 区块（id = html-quiz-progress，
+     type = application/json）。
+
+     提取正则：/<script id="html-quiz-progress" type="application\/json">([\s\S]*?)<\/script>/
+     解析后重点字段：
+       answers[qid].value        用户作答（单选取字符串，多选取数组）
+       answers[qid].why          用户当时的思路
+       answers[qid].wrongReason  选错原因（自由文本，待 AI 归类）
+       notes[]                   我的文字 / 灵感
+       annotations[]             对选中文字的评注（quote 锚点，doubt=true 表示存疑）
+       marks[]                   位置标记（y 锚点）
+       strokes[]                 手写涂鸦（SVG 路径；anchor.text 说明画在哪一段）
+       sectionProgress[sid]      章节阅读进度（percent / read）
+       scrollPercent / readDone  整体阅读进度
+     正文在 <article id="content"> 内，与数据区物理分离 —— 解析数据块即可，
+     无需通读全文。
+     题目与标准答案（答题页才有）在 id = html-content-meta 的 script 区块内。
+     =================================================================== -->
+
+<style>
+  :root {
+    --ink: #1f2328;
+    --muted: #6a737d;
+    --line: #e3e6ea;
+    --accent: #4a7bd5;
+    --paper: #ffffff;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    padding: 0 18px 96px;
+    color: var(--ink);
+    background: var(--paper);
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB",
+      "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+    font-size: 17px;
+    line-height: 1.85;
+  }
+  article#content { max-width: 42em; margin: 0 auto; }
+  h1 { font-size: 1.6em; line-height: 1.4; margin: 28px 0 6px; }
+  h2 { font-size: 1.22em; margin: 34px 0 10px; padding-top: 14px; border-top: 1px solid var(--line); }
+  h3 { font-size: 1.05em; margin: 22px 0 8px; }
+  p { margin: 0 0 1.05em; }
+  .meta { color: var(--muted); font-size: 0.82em; margin-bottom: 20px; }
+  blockquote {
+    margin: 1.2em 0; padding: 2px 16px; border-left: 3px solid var(--line);
+    color: #444; background: #fafbfc;
+  }
+  ul, ol { padding-left: 1.4em; margin: 0 0 1.1em; }
+  li { margin: 0.3em 0; }
+  /* 资讯页图片：默认缩略，不占过多文字空间；双击放大 */
+  article#content img {
+    display: block;
+    max-width: 100%;
+    max-height: min(240px, 30vh);
+    width: auto;
+    height: auto;
+    margin: 14px auto;
+    border-radius: 8px;
+    background: #f2f4f6;
+  }
+  figure { margin: 16px 0; }
+  figcaption { color: var(--muted); font-size: 0.8em; text-align: center; }
+  code { background: #f4f5f7; padding: 1px 5px; border-radius: 4px; font-size: 0.9em; }
+  @media (prefers-color-scheme: dark) {
+    :root { --ink: #dfe3e8; --muted: #8b949e; --line: #2d333b; --paper: #16191d; }
+    blockquote { background: #1c2026; color: #c9d1d9; }
+    code { background: #22262c; }
+  }
+  @media (prefers-contrast: more) {
+    body { color: #000; }
+    article#content img { border: 1px solid #000; }
+  }
+</style>
+</head>
+<body>
+
+<article id="content">
+
+  <h1>示例资讯页：一篇可以被打断、被标注的长文</h1>
+  <p class="meta">演示用 · 单文件 HTML · 所有图片已 base64 内联</p>
+
+  <section data-sid="s1" data-stitle="一、为什么要做单文件">
+    <h2>一、为什么要做单文件</h2>
+    <p>这一段用来演示「选中文字 → 加评注 / 标存疑」。你可以选中下面这句话，然后在浮出的按钮条里点一下
+      <strong>💬 评注</strong>或者 <strong>❓ 存疑</strong>。</p>
+    <p>单文件的意义在于：内容、样式、脚本、状态、你的批注，全部装在同一个文件里。它跟着同步软件走，
+      换设备打开时，位置、进度、笔记都还在。</p>
+    <blockquote>凡是能被拆成多个文件的东西，最后都会散架。</blockquote>
+  </section>
+
+  <section data-sid="s2" data-stitle="二、图片怎么用">
+    <h2>二、图片怎么用</h2>
+    <p>资讯页里的图片默认是缩略的，不占太多文字空间。需要细看时，<strong>双击图片</strong>可以放大到屏幕等宽，
+      再双击一次进入全屏，第三次双击回到等宽，点背景或按 ESC 关闭。</p>
+    <figure>
+      <img src="data:image/svg+xml;base64,__DEMO_IMG__" alt="演示图片：渐变山景">
+      <figcaption>演示图片 · 双击试试</figcaption>
+    </figure>
+    <p>这张图是完全内联的 base64 dataURL，没有任何外部依赖，复制整个 HTML 到别的机器上照样能显示。</p>
+  </section>
+
+  <section data-sid="s3" data-stitle="三、怎么留痕迹">
+    <h2>三、怎么留痕迹</h2>
+    <p>三种留痕方式：选中文字加评注（精确到句子）、在当前位置打一个位置标记（记下你读到哪儿了）、
+      以及随手写一条笔记。底部「我的笔记与标注」区会汇总它们，点「定位」可以跳回原处。</p>
+    <ul>
+      <li>评注：锚在具体句子上，正文里会有淡黄底高亮</li>
+      <li>标记：锚在位置���，正文里会出现一条竖线</li>
+      <li>笔记：只属于你，不锚在任何地方</li>
+    </ul>
+    <p>读完之后，插件的「复制复习清单」可以把答案、错题、存疑、笔记整理成一份 Markdown，直接交给 AI 做查漏补缺。</p>
+  </section>
+
+</article>
+
+
+<script id="html-content-meta" type="application/json">
+{
+  "title": "示例资讯页：一篇可以被打断、被标注的长文",
+  "kind": "article",
+  "sections": [
+    { "id": "s1", "title": "一、为什么要做单文件" },
+    { "id": "s2", "title": "二、图片怎么用" },
+    { "id": "s3", "title": "三、怎么留痕迹" }
+  ],
+  "questions": []
+}
+</script>
+
+<script id="html-quiz-progress" type="application/json">
+{
+  "currentQuestion": 0,
+  "answers": {},
+  "scrollY": 0,
+  "scrollPercent": 0,
+  "readDone": false,
+  "sectionProgress": {},
+  "notes": [],
+  "annotations": [],
+  "marks": [],
+  "strokes": [],
+  "ui": { "pager": { "top": 0.5, "right": 20 }, "inkbar": { "edge": "bottom" } },
+  "meta": { "schema": "html-quiz-progress/v1" }
+}
+</script>
+
+__RUNTIME__
+
+</body>
+</html>

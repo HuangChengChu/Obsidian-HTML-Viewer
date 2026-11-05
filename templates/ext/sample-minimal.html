@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>外部网页样例 · 无 content 容器</title>
+<!--
+  最简外部网页：没有 #content、没有 main，只有 <article>。
+  用来验证 runtime 的正文根兜底链（#content → main → article → body）。
+  同时用作 G8 真机门禁的固定样例。
+-->
+<style>
+  body { margin: 0; font-family: system-ui, -apple-system, "PingFang SC", sans-serif; line-height: 1.9; color: #222; }
+  article { max-width: 720px; margin: 0 auto; padding: 24px 20px 120px; }
+  h1 { font-size: 22px; }
+</style>
+</head>
+<body>
+  <article>
+    <h1>没有 #content 的外部网页</h1>
+    <p>这一页没有 <code>id="content"</code> 的容器，只有 <code>article</code>。runtime 会退到 <code>article</code> 作为正文根。</p>
+    <p>这一段用来验证「正文段落能不能被标注锚定」。锚点应当落在这一段的文字上。</p>
+    <p>继续撑长度，让页面可以翻页。继续撑长度，让页面可以翻页。继续撑长度，让页面可以翻页。</p>
+    <p>再垫几段。再垫几段。再垫几段。再垫几段。再垫几段。再垫几段。再垫几段。再垫几段。</p>
+    <p>最后一段。用来确认翻页到底部之后还能不能往上翻。最后一段。用来确认翻页到底部之后还能不能往上翻。</p>
+  </article>
+</body>
+</html>

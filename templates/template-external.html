@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>示例报告页 · 单文件 HTML 视图</title>
+<!--
+  ============================================================================
+  单文件 HTML 模板（适配 Obsidian「HTML 单文件视图」插件）
+
+  给 AI / 脚本生成页面时照这个骨架来，生成出来就能直接用：
+  - 翻页键、触屏分区翻页、标注、笔记、标记、手写涂鸦、进度回写
+  - 进度、批注、笔记、涂鸦全部写回**这个文件自己**末尾的数据区，不产生附属文件
+  - 靠 Obsidian 同步（iCloud / 绿联 NAS）实现手机 ↔ 电脑接力
+
+  三条硬要求：
+  1. 正文容器用 <main id="content">（没有它插件会退到 <main>/<article>/<body>）
+  2. 章节标题加 data-sid="章节 id"（决定阅读进度分章）
+  3. 题目块加 data-qid="题目 id"（决定哪些块可以作答）
+
+  不需要内联 runtime：插件打开时��自动注入。
+  如果希望这个文件脱离 Obsidian 也能带功能，可以把 runtime 内联进来（见 docs/07 指引）。
+  ============================================================================
+-->
+<style>
+  /* 自己的排版随便写。注意：插件不会改动你的布局，
+     它的界面元素（翻页键 / 手写按钮 / 笔记面板）都是 fixed 定位，不占正文宽度。 */
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    line-height: 1.9;
+    color: #1f2328;
+    background: #fff;
+  }
+  main#content { max-width: 760px; margin: 0 auto; padding: 24px 20px 120px; }
+  main#content h1 { font-size: 26px; }
+  main#content h2 { margin-top: 1.8em; font-size: 20px; }
+  main#content p { margin: .8em 0; }
+  .q { border: 1px solid #e3e6ea; border-radius: 10px; padding: 12px 14px; margin: 16px 0; }
+  .q label { display: block; padding: 4px 0; cursor: pointer; }
+</style>
+</head>
+<body>
+
+<main id="content">
+
+  <h1>示例报告页</h1>
+  <p>这一段是正文。选中任意文字就能加标注，页面上会出现一个小工具条。</p>
+
+  <!-- 章节：加 data-sid，插件据此记录「这一章读到哪了」 -->
+  <h2 data-sid="sec-1">一、第一节</h2>
+  <p>章节内容……</p>
+
+  <!-- 题目：加 data-qid，插件据此渲染答题控件并把作答写回文件 -->
+  <div class="q" data-qid="q1">
+    <div>下面哪一项是正确的？</div>
+    <label><input type="radio" name="q1" value="A"> A. 选项一</label>
+    <label><input type="radio" name="q1" value="B"> B. 选项二</label>
+    <label><input type="radio" name="q1" value="C"> C. 选项三</label>
+  </div>
+
+  <h2 data-sid="sec-2">二、第二节</h2>
+  <p>章节内容……</p>
+
+</main>
+
+<!--
+  用户交互数据区。
+  插件会原地替换这个区块里的 JSON，其余字节不动。
+  第一次保存时如果这里不存在，插件会自动创建。
+-->
+<script id="html-quiz-progress" type="application/json">
+{
+  "currentQuestion": 0,
+  "answers": {},
+  "scrollY": 0,
+  "scrollPercent": 0,
+  "readDone": false,
+  "sectionProgress": {},
+  "notes": [],
+  "annotations": [],
+  "marks": [],
+  "strokes": [],
+  "ui": {},
+  "meta": { "schema": "html-quiz-progress/v1" }
+}
+</script>
+
+</body>
+</html>

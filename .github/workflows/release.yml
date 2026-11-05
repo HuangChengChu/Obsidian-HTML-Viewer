@@ -1,0 +1,97 @@
+name: Release
+
+# BRAT / Obsidian 社区插件的安装方式都依赖 GitHub Release：
+#   - Release 的 tag 必须与 manifest.json 里的 version 完全一致
+#   - Release 必须带上 manifest.json / main.js / styles.css 三个附件
+# 所以这里：tag 触发 → 校验版本一致 → 构建 → 校验 → 打包上传。
+
+on:
+  push:
+    tags:
+      - "[0-9]+.[0-9]+.[0-9]+"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install deps
+        run: |
+          npm ci
+          npm ci --prefix plugin
+
+      - name: Build templates and plugin
+        run: npm run build:all
+
+      - name: Check tag matches manifest version
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          MANIFEST_VERSION="$(node -p "require('./plugin/manifest.json').version")"
+          echo "tag=$TAG manifest=$MANIFEST_VERSION"
+          if [ "$TAG" != "$MANIFEST_VERSION" ]; then
+            echo "::error::Release tag ($TAG) 与 manifest.json 的 version ($MANIFEST_VERSION) 必须一致"
+            exit 1
+          fi
+
+      - name: Check manifest and versions.json agree
+        run: |
+          node -e "
+          const m = require('./plugin/manifest.json');
+          const v = require('./plugin/versions.json');
+          const pkg = require('./plugin/package.json');
+          if (m.version !== pkg.version) throw new Error('manifest 与 package.json 版本不一致');
+          if (!v[m.version]) throw new Error('versions.json 里没有 ' + m.version);
+          if (m.id !== 'html-single-file-view') throw new Error('插件 id 变了？');
+          if (!/^[a-z0-9-]+$/.test(m.id)) throw new Error('插件 id 必须全小写字母/数字/连字符');
+          if (m.id.includes('obsidian')) throw new Error('插件 id 不能含 obsidian');
+          console.log('manifest ok:', m.id, m.version);
+          "
+
+      - name: Run unit tests
+        run: node --test tests/*.test.mjs
+
+      - name: Stage release assets
+        run: |
+          mkdir -p release
+          cp dist/plugin/main.js release/main.js
+          cp plugin/manifest.json release/manifest.json
+          cp plugin/styles.css release/styles.css
+          # 顺带放一份完整工程包，方便手动安装的人拿到模板与文档
+          cp dist/Obsidian-HTML-Viewer-${TAG}.zip release/ 2>/dev/null || true
+          ls -l release
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          files: |
+            release/main.js
+            release/manifest.json
+            release/styles.css
+          generate_release_notes: true
+          body: |
+            ## 安装（BRAT）
+
+            1. 在 Obsidian 里装并启用社区插件 **BRAT**（Obsidian42 - BRAT）
+            2. 命令面板 → `Plugins: Add a beta plugin for testing`
+            3. 填入仓库地址：`${{ github.repository }}`
+            4. 选 `Latest version` → `Add plugin`
+
+            iOS / iPadOS / Android 上 Obsidian 不能从社区商店装第三方插件，
+            BRAT 是官方推荐的变通办法：插件的 `manifest.json` 里 `isDesktopOnly` 为 `false`。
+
+            手动安装：下载本 Release 的 `main.js`、`manifest.json`、`styles.css`，
+            放进 vault 的 `.obsidian/plugins/html-single-file-view/` 目录，
+            重启 Obsidian 后在「第三方插件」里启用。

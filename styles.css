@@ -1,0 +1,179 @@
+/* 视图外壳样式（Obsidian 自动加载 plugins/<id>/styles.css） */
+
+.html-view-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+}
+
+/* iframe 容器 */
+.html-view-frame-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  position: relative;
+}
+
+.html-view-frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: var(--background-primary, #fff);
+}
+
+/* ------------------------------------------------------------------
+   底部状态条
+   左边一个折叠按钮（‹），右边是状态文本：
+     · 已保存于 HH:MM:SS
+     · · 保留了对方修改 N 处
+   ------------------------------------------------------------------ */
+.html-view-status {
+  position: relative;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 10px 2px 4px;
+  font-size: var(--font-ui-smaller, 11px);
+  color: var(--text-faint, #888);
+  border-top: 1px solid var(--background-modifier-border, rgba(0, 0, 0, 0.08));
+  background: var(--background-secondary, #f5f5f5);
+}
+
+/* 折叠按钮：向左的箭头，点开上浮菜单 */
+.html-view-fold {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--text-faint, #888);
+  font-size: 16px;
+  line-height: 1;
+  border-radius: 4px;
+}
+
+.html-view-fold:hover {
+  background: var(--background-modifier-hover, rgba(0, 0, 0, 0.07));
+  color: var(--text-normal, #333);
+}
+
+.html-view-fold.is-open {
+  color: var(--text-accent, var(--text-normal, #333));
+  background: var(--background-modifier-hover, rgba(0, 0, 0, 0.07));
+}
+
+.html-view-status-saved {
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.html-view-status-saved.is-ok {
+  color: var(--text-success, #2a7);
+}
+
+.html-view-status-saved.is-error {
+  color: var(--text-error, #c00);
+}
+
+.html-view-status-saved.is-warn {
+  color: var(--text-warning, #c8871a);
+}
+
+.html-view-status-kept {
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-warning, #c8871a);
+}
+
+/* 上浮菜单：收纳低频操作 */
+.html-view-menu {
+  position: absolute;
+  left: 4px;
+  bottom: calc(100% + 4px);
+  z-index: 40;
+  display: none;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 240px;
+  max-width: 320px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--background-primary, #fff);
+  border: 1px solid var(--background-modifier-border, rgba(0, 0, 0, 0.12));
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.22);
+}
+
+.html-view-menu.is-open {
+  display: flex;
+}
+
+.html-view-menu-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-normal, #333);
+  word-break: break-all;
+}
+
+.html-view-menu-hint {
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--text-muted, #888);
+}
+
+.html-view-menu-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.html-view-menu-actions button {
+  text-align: left;
+  padding: 5px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--background-modifier-border, rgba(0, 0, 0, 0.12));
+  background: var(--background-secondary, #f5f5f5);
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-normal, #333);
+}
+
+.html-view-menu-actions button:hover {
+  background: var(--background-modifier-hover, rgba(0, 0, 0, 0.07));
+}
+
+/* 说明抽屉 */
+.html-view-help {
+  flex: 0 0 auto;
+  max-height: 40%;
+  overflow: auto;
+  padding: 10px 14px;
+  font-size: var(--font-ui-small, 12px);
+  line-height: 1.7;
+  border-bottom: 1px solid var(--background-modifier-border, rgba(0, 0, 0, 0.1));
+}
+
+.html-view-help.is-hidden {
+  display: none;
+}
+
+.html-view-help code {
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--background-modifier-hover, rgba(0, 0, 0, 0.08));
+  font-size: 0.92em;
+}
+
+.html-view-help ul {
+  margin: 4px 0;
+  padding-left: 18px;
+}

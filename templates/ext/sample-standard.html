@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>外部网页样例 · 标准结构</title>
+<!--
+  这是一个「从外面拿来的普通网页」：没有 runtime，也没有插件的数据区。
+  插件打开它时会自动注入 runtime，于是翻页、标注、笔记、标记、手写全部可用。
+  本文件同时用作 G8 真机门禁的固定样例。
+-->
+<style>
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; font-family: system-ui, -apple-system, "PingFang SC", sans-serif; line-height: 1.9; color: #1f2328; background: #fff; }
+  .top { position: fixed; top: 0; left: 0; right: 0; height: 46px; line-height: 46px; padding: 0 16px; background: #f2f4f7; border-bottom: 1px solid #e3e6ea; z-index: 10; }
+  nav#toc { position: fixed; top: 46px; left: 0; bottom: 0; width: 190px; padding: 16px; background: #fafbfc; border-right: 1px solid #e3e6ea; overflow: auto; z-index: 9; }
+  nav#toc a { display: block; padding: 4px 0; color: #555; text-decoration: none; }
+  main#content { margin: 46px 0 0 190px; padding: 24px 32px 120px; max-width: 760px; }
+  main#content h2 { margin-top: 1.6em; font-size: 20px; }
+  main#content p { margin: .8em 0; }
+  .q { border: 1px solid #e3e6ea; border-radius: 8px; padding: 12px 14px; margin: 14px 0; }
+  .q label { display: block; padding: 3px 0; cursor: pointer; }
+</style>
+</head>
+<body>
+  <div class="top">外部网页样例 · 标准结构</div>
+  <nav id="toc">
+    <strong>目录</strong>
+    <a href="#sec1">一、正文结构</a>
+    <a href="#sec2">二、选择题</a>
+    <a href="#sec3">三、长文段落</a>
+  </nav>
+
+  <main id="content">
+    <h2 id="sec1" data-sid="s1">一、正文结构</h2>
+    <p>这一段用来验证「正文段落能不能被标注锚定」。锚点应当落在这一段的文字上，而不是上面的目录条目上。</p>
+    <p>普通网页没有 <code>data-sid</code>，这一段带上了，所以阅读进度可以按章节记录。</p>
+    <p>第三段用来把页面撑长，保证翻页键有东西可以翻。</p>
+    <p>第四段继续撑长度。第四段继续撑长度。第四段继续撑长度。第四段继续撑长度。</p>
+    <p>第五段继续撑长度。第五段继续撑长度。第五段继续撑长度。第五段继续撑长度。第五段继续撑长度。</p>
+    <p>第六段继续撑长度。第六段继续撑长度。第六段继续撑长度。第六段继续撑长度。第六段继续撑长度。</p>
+
+    <h2 id="sec2" data-sid="s2">二、选择题</h2>
+    <p>下面是一个题目块，用来验证「外部网页里带 <code>data-qid</code> 的题也能作答并回写」。</p>
+    <div class="q" data-qid="q1">
+      <div>下面哪一项属于「单文件 HTML 教程」的特征？</div>
+      <label><input type="radio" name="q1" value="A"> A. 所有资源都内联在一个 .html 里</label>
+      <label><input type="radio" name="q1" value="B"> B. 必须依赖一个本地服务器</label>
+      <label><input type="radio" name="q1" value="C"> C. 只能用来做幻灯片</label>
+    </div>
+    <p>题目块后面再垫几段，让页面更长一些，便于验证翻页。</p>
+    <p>垫一段。垫一段。垫一段。垫一段。垫一段。垫一段。垫一段。垫一段。垫一段。</p>
+    <p>再垫一段。再垫一段。再垫一段。再垫一段。再垫一段。再垫一段。再垫一段。再垫一段。</p>
+
+    <h2 id="sec3" data-sid="s3">三、长文段落（把页面撑到好几屏）</h2>
+    <p>这一节专门用来把页面撑长。G8 真机门禁要验证「点向下箭头 → 真的往下滚」，页面太短的话滚到底就动不了了，测的就不是翻页本身，而是「页面恰好只有一屏半」。</p>
+    <p>所以这里需要足够多的段落，让内容高度明显超过两屏。插件的翻页键每次滚 90% 的可视高度，从中间任何位置往下点，都应该还有余量可以滚。</p>
+    <p>第三段。页面不能太短，否则翻页键形同虚设，用户点下去没有反应，会以为是插件坏了。</p>
+    <p>第四段。第四段。第四段。第四段。第四段。第四段。第四段。第四段。第四段。第四段。</p>
+    <p>第五段。第五段。第五段。第五段。第五段。第五段。第五段。第五段。第五段。第五段。</p>
+    <p>第六段。第六段。第六段。第六段。第六段。第六段。第六段。第六段。第六段。第六段。</p>
+    <p>第七段。第七段。第七段。第七段。第七段。第七段。第七段。第七段。第七段。第七段。</p>
+    <p>第八段。第八段。第八段。第八段。第八段。第八段。第八段。第八段。第八段。第八段。</p>
+    <h3>八、嵌套层级也要能锚定</h3>
+    <p>这一段在三级标题下面，标注锚点依然应当落在这段文字上。层级深一点的内容，锚点最容易算错。</p>
+    <p>再垫一段。再垫一段。再垫一段。再垫一段。再垫一段。再垫一段。再垫一段。再垫一段。</p>
+    <p>收尾一段。收尾一段。收尾一段。收尾一段。收尾一段。收尾一段。收尾一段。收尾一段。</p>
+  </main>
+</body>
+</html>
