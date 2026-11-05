@@ -8,6 +8,8 @@ name: Release
 on:
   push:
     tags:
+      # GitHub 的过滤器是 glob 不是正则，v 前缀要单独列一条
+      - "v[0-9]+.[0-9]+.[0-9]+"
       - "[0-9]+.[0-9]+.[0-9]+"
   workflow_dispatch:
 
