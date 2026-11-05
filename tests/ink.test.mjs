@@ -229,8 +229,18 @@ test("未进入画笔模式时画布不拦截指针事件（正文照常交互�
   );
   assert.match(
     css,
-    /\.hvv-root\.is-ink \.hvv-ink\{pointer-events:auto/,
+    /\.hvv-root\.is-ink \.hvv-ink[^{]*\{pointer-events:auto/,
     "画笔模式下画布接管事件",
+  );
+  assert.match(
+    css,
+    /\.hvv-content-root\.is-ink \.hvv-ink[^{]*\{pointer-events:auto/,
+    "page 宿主下手写画布挂在正文根里，规则也要覆盖到",
+  );
+  assert.match(
+    css,
+    /\.hvv-content-root\.is-ink\{user-select:none/,
+    "page 宿主下画笔模式要能禁掉正文选中",
   );
   assert.equal(doc.body.classList.contains("is-ink"), false);
   dom.window.close();

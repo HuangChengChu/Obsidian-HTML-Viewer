@@ -176,7 +176,7 @@
 
   var PROGRESS_ID = "html-quiz-progress";
   var META_ID = "html-content-meta";
-  var VERSION = "1.3.0";
+  var VERSION = "1.4.0";
 
   var MSG = {
     LOAD: "LOAD_PROGRESS",
@@ -241,6 +241,33 @@
     paused: false, // 临时关停：所有交互让位
     uiRoot: null, // page 宿主下 runtime 界面元素的专用壳
     prevRoot: null, // 上一次服务的正文根（换篇时要摘掉标记）
+    rootPosPatched: false, // page 宿主下我们给正文根补过 position:relative
+  };
+
+  /**
+   * 功能开关。
+   *
+   * page 宿主（Obsidian 的 MD 阅读视图）默认关掉「网页专属」的那几个：
+   * 翻页键、触屏分区翻页、图片三态——
+   * 它们在 Obsidian 里会跟原生交互正面冲突（尤其触屏翻页会把正常滚动吃掉），
+   * 而且 MD 场景要的是「手写 + 标注 + 笔记 + 进度」，不是把 Obsidian 变成网页。
+   *
+   * 宿主可以在 window.__HVV_HOST__.features 里显式覆盖。
+   */
+  var PAGE_DEFAULT_OFF = ["pager", "touchFlip", "images"];
+
+  function pickFeature(name, def) {
+    var f = BOOT && BOOT.features;
+    if (f && typeof f[name] === "boolean") return f[name];
+    if (HOST.kind === "page" && PAGE_DEFAULT_OFF.indexOf(name) >= 0) return false;
+    return def;
+  }
+
+  var FEATURES = {
+    pager: pickFeature("pager", true),
+    touchFlip: pickFeature("touchFlip", true),
+    images: pickFeature("images", true),
+    ink: pickFeature("ink", true),
   };
 
   var mode = "unknown"; // unknown | plugin | fallback
@@ -263,10 +290,32 @@
   // 数据怎么进出。抽成 HOST 之后，下面的业务逻辑一行都不用改。
   //
   // page 宿主是「单实例 + 反复 attach」：Obsidian 可以同时开着好几篇 MD，
-  // runtime 只有一个，靠 attach() 切换当前服务的那一篇。
+  // runtime 只有一个，靠 attachPage() 切换当前服务的那一篇。
+
   /** 当前正文根（page 宿主由外部指定） */
   function hostRoot() {
     return HOST.root || null;
+  }
+
+  /**
+   * 承载「状态类」的元素。
+   *
+   * is-ink（画笔模式）、is-paused（临时关停）这两个状态必须同时作用在
+   * runtime 的界面元素和正文根上：
+   *   - 界面元素在 uiRoot 里（画笔工具条、翻页键、面板……）
+   *   - 手写画布在正文根里（它是内容的子节点，才能跟着内容一起滚）
+   * 两边不是同一个祖先链，所以状态类要分别挂到两个元素上。
+   *
+   * iframe 宿主下 uiRoot 就是 body、正文根在 body 里，
+   * 只有 body 一个元素需要挂；page 宿主下则要挂两处。
+   */
+  function hostStateRoots() {
+    var out = [];
+    var ui = hostUiRoot();
+    if (ui) out.push(ui);
+    var root = HOST.root;
+    if (root && out.indexOf(root) < 0) out.push(root);
+    return out;
   }
 
   /** 事件是否落在当前正文根里（page 宿主用来避免劫持 Obsidian 自己的 UI） */
@@ -289,7 +338,10 @@
    * iframe 宿主：直接挂 body。
    * page 宿主：挂一个专用的 wrapper div——
    *   不去动 Obsidian 的 body class（那是人家应用的骨架），
-   *   同时把 CSS 变量和 .is-ink 状态都收在这个壳里，不污染 Obsidian 自身样式。
+   *   界面元素全部收在这个壳里，不污染 Obsidian 自身样式。
+   *
+   * 正文根（MD 内容容器）不在这个壳里，但会给它加上 .hvv-root，
+   * 让 CSS 变量（--hvv-ink 等）能传到手写画布上。
    */
   function hostUiRoot() {
     if (HOST.kind !== "page") return document.body;
@@ -449,8 +501,11 @@
     "background:rgba(224,138,46,.18);color:#96591a;}",
     /* ---------- 手写标注层 ---------- */
     ".hvv-ink{position:absolute;left:0;top:0;width:100%;height:100%;z-index:5;pointer-events:none;touch-action:none;}",
-    ".hvv-root.is-ink .hvv-ink{pointer-events:auto;}",
-    ".hvv-root.is-ink .hvv-content-root{user-select:none;-webkit-user-select:none;}",
+    // 画笔模式：画布要能接住指针，正文要禁选中。
+    // page 宿主下手写画布在正文根里（不在 .hvv-root 壳里），
+    // 所以两条规则都要写：一条给 iframe 宿主，一条给 page 宿主。
+    ".hvv-root.is-ink .hvv-ink,.hvv-content-root.is-ink .hvv-ink{pointer-events:auto;}",
+    ".hvv-root.is-ink .hvv-content-root,.hvv-content-root.is-ink{user-select:none;-webkit-user-select:none;}",
     ".hvv-ink path{fill:none;stroke-linecap:round;stroke-linejoin:round;}",
     ".hvv-ink-zoomspace{height:0;}",
     ".hvv-ink-fab{position:fixed;right:18px;bottom:18px;z-index:78;width:44px;height:44px;border-radius:50%;",
@@ -467,6 +522,10 @@
     ".hvv-root.is-paused :is(.hvv-pager,.hvv-panel,.hvv-panel-tab,.hvv-ink-fab,.hvv-inkbar,",
     ".hvv-brushgrid,.hvv-overlay,.hvv-pop,.hvv-seltool,.hvv-zoomtag,.hvv-status){pointer-events:none;opacity:.18;}",
     ".hvv-root.is-paused .hvv-halt{pointer-events:auto;opacity:1;}",
+    // 没接上 MD 时，界面壳里的东西一律不显示：
+    // 否则在 Obsidian 任何界面（设置、图谱、别的插件）右下角都飘着一个笔。
+    ".hvv-page-root:not(.is-md) :is(.hvv-ink-fab,.hvv-halt,.hvv-panel-tab,.hvv-panel,",
+    ".hvv-seltool,.hvv-inkbar,.hvv-brushgrid,.hvv-zoomtag){display:none;}",
     ".hvv-inkbar{position:fixed;z-index:79;display:none;align-items:center;gap:4px;padding:5px;border-radius:12px;",
     "background:rgba(255,255,255,.96);border:1px solid rgba(0,0,0,.16);box-shadow:0 4px 18px rgba(0,0,0,.2);",
     "touch-action:none;}",
@@ -780,6 +839,27 @@
     return h ? h.clientHeight : window.innerHeight;
   }
 
+  /**
+   * 可滚动总量 + 视口高度。
+   *
+   * page 宿主：滚的是 MD 内容容器，不是整个窗口。
+   * 用 documentElement 的高度算百分比会离谱——Obsidian 的侧栏和顶栏占了大半屏，
+   * 进度百分比会永远卡在一半以下。
+   */
+  function scrollMetrics() {
+    var h = scrollHost();
+    if (h) {
+      return {
+        total: h.scrollHeight || 1,
+        viewport: h.clientHeight || window.innerHeight,
+      };
+    }
+    return {
+      total: document.documentElement.scrollHeight || 1,
+      viewport: window.innerHeight,
+    };
+  }
+
   // ---------------------------------------------------------------- 采集
 
   /**
@@ -818,7 +898,9 @@
   }
 
   function questionBlocks() {
-    return $$("[data-qid]");
+    // 收在正文根里：page 宿主下整个 Obsidian 界面都是 document 的后代，
+    // 不限定范围的话会到处乱扫。
+    return contentEls("[data-qid]");
   }
 
   function readValue(block, qid) {
@@ -880,11 +962,8 @@
     var answers = collectAnswers();
     state.answers = answers;
     var y = scrollTop();
-    var max =
-      Math.max(
-        1,
-        (document.documentElement.scrollHeight || 1) - window.innerHeight,
-      );
+    var m = scrollMetrics();
+    var max = Math.max(1, m.total - m.viewport);
     state.scrollY = Math.round(y);
     state.scrollPercent = Math.min(100, Math.round((y / max) * 100));
     updateSectionProgress();
@@ -1022,7 +1101,9 @@
   // ---------------------------------------------------------------- 章节
 
   function computeSections() {
-    var explicit = $$("[data-sid]");
+    // page 宿主还没 attach 上正文根时，别去扫 Obsidian 整个界面
+    if (HOST.kind === "page" && !HOST.root) return [];
+    var explicit = contentEls("[data-sid]");
     if (explicit.length > 0) {
       return explicit.map(function (el, i) {
         return {
@@ -1036,7 +1117,9 @@
         };
       });
     }
-    var heads = contentEls("h2, h3");
+    // MD 的标题层级受 Obsidian 的「标题大小」设置影响，
+    // 从 h1 到 h4 都可能，所以 page 宿主把 h1 也算成章节。
+    var heads = contentEls(HOST.kind === "page" ? "h1,h2,h3,h4" : "h2, h3");
     var root = contentEl();
     var lastEl = root.lastElementChild || root;
     return heads.map(function (h, i) {
@@ -1079,11 +1162,8 @@
         at: read && prev.read !== true ? nowIso() : prev.at || nowIso(),
       };
     });
-    var max =
-      Math.max(
-        1,
-        (document.documentElement.scrollHeight || 1) - window.innerHeight,
-      );
+    var m = scrollMetrics();
+    var max = Math.max(1, m.total - m.viewport);
     var percent = Math.min(100, Math.round((y / max) * 100));
     var done = state.readDone;
     if (percent >= 95) done = true;
@@ -2166,22 +2246,133 @@
 
   // ---- 图层 ----
 
+  /**
+   * 手写画布层。
+   *
+   * iframe 宿主：挂在正文根里（跟着内容一起滚），并在正文根上补 position:relative。
+   * page 宿主：正文根是 Obsidian 的内容容器——
+   *   不能硬改它的 position（那是人家布局的一部分），只在确实是 static 时补一个；
+   *   也不能往它的父节点里插兄弟元素（会挤乱 Obsidian 的 DOM 结构），
+   *   缩放占位块干脆不建（MD 场景几乎用不到缩放）。
+   */
   function ensureInkLayer() {
     if (inkSvg) return inkSvg;
     var root = inkRoot();
-    root.style.position = "relative";
+    if (!root) return null;
+    if (HOST.kind === "page") {
+      var pos = "";
+      try {
+        pos = window.getComputedStyle(root).position || "";
+      } catch (e) {
+        pos = "";
+      }
+      if (!pos || pos === "static") {
+        root.style.position = "relative";
+        HOST.rootPosPatched = true;
+      }
+    } else {
+      root.style.position = "relative";
+    }
     inkSvg = document.createElementNS(INK_NS, "svg");
     inkSvg.setAttribute("class", "hvv-ink");
     inkSvg.setAttribute("aria-hidden", "true");
     root.appendChild(inkSvg);
-    inkSpacer = document.createElement("div");
-    inkSpacer.className = "hvv-ink-zoomspace";
-    if (root.parentNode) {
-      root.parentNode.insertBefore(inkSpacer, root.nextSibling);
-    } else {
-      hostUiRoot().appendChild(inkSpacer);
+    // 指针事件绑在画布上：画布可能被摘掉重建（换篇），所以跟着层走，
+    // 不能只在 setupInk 里绑一次（page 宿主下那时候画布还不存在）。
+    inkSvg.addEventListener("pointerdown", inkOnPointerDown);
+    inkSvg.addEventListener("pointermove", inkOnPointerMove);
+    inkSvg.addEventListener("pointerup", inkOnPointerUp);
+    inkSvg.addEventListener("pointercancel", inkOnPointerUp);
+    if (HOST.kind !== "page") {
+      inkSpacer = document.createElement("div");
+      inkSpacer.className = "hvv-ink-zoomspace";
+      if (root.parentNode) {
+        root.parentNode.insertBefore(inkSpacer, root.nextSibling);
+      } else {
+        hostUiRoot().appendChild(inkSpacer);
+      }
     }
     return inkSvg;
+  }
+
+  /**
+   * 确保画布挂在当前正文根上。
+   *
+   * 注意：画布对象可能**还在内存里但已经被 Obsidian 从 DOM 里摘走了**
+   * （重渲染时正文根内容被清空重建）。
+   * 这时候 ensureInkLayer() 会因为「inkSvg 已存在」直接返回，
+   * 画布就再也挂不回去了——所以这里要判断 parentNode，而不是判断对象存不存在。
+   */
+  function inkEnsureAttached() {
+    var root = inkRoot();
+    if (!root) return;
+    if (!inkSvg) {
+      ensureInkLayer();
+      return;
+    }
+    if (inkSvg.parentNode !== root) root.appendChild(inkSvg);
+  }
+
+  /**
+   * 把手写画布搬到新的正文根（page 宿主切篇时用）。
+   *
+   * 画布必须是正文根的子节点：它靠 position:absolute 定位在内容上方，
+   * 并且要跟着内容一起滚。
+   */
+  function inkRelocate() {
+    var root = HOST.root;
+    if (!root) return;
+    inkEnsureAttached();
+    watchInkLayer(root);
+  }
+
+  var inkWatcher = null;
+
+  /**
+   * 盯着正文根，画布被抹掉就自己挂回去。
+   *
+   * Obsidian 重渲染这一篇时，会把正文根里的内容**清空重建**——
+   * 我们挂在里面的手写画布会被一起抹掉，而 Obsidian 不会通知我们。
+   *
+   * 靠插件侧「发现画布没了再接管」是不够的：
+   * Obsidian 的 markdown 后处理在阅读视图里给的是**游离的元素**，
+   * 没法拿它判断是不是阅读视图；
+   * 没有别的信号能告诉我们「内容被重建了」。
+   * 所以这里在 runtime 内部自己盯着——状态还在内存里，笔迹不会丢。
+   */
+  function watchInkLayer(root) {
+    if (inkWatcher) {
+      inkWatcher.disconnect();
+      inkWatcher = null;
+    }
+    if (!root) return;
+    if (typeof MutationObserver !== "function") return;
+    try {
+      inkWatcher = new MutationObserver(function () {
+        if (inkSvg && inkSvg.parentNode === inkRoot()) return; // 画布好好挂着
+        inkEnsureAttached();
+        inkRender();
+      });
+      inkWatcher.observe(root, { childList: true });
+    } catch (e) {
+      inkWatcher = null;
+    }
+  }
+
+  /** 把画布从正文根里摘掉，并把我们改过的 position 还原 */
+  function inkDetach() {
+    if (inkWatcher) {
+      inkWatcher.disconnect();
+      inkWatcher = null;
+    }
+    if (inkSvg && inkSvg.parentNode) inkSvg.parentNode.removeChild(inkSvg);
+    if (inkSpacer && inkSpacer.parentNode) inkSpacer.parentNode.removeChild(inkSpacer);
+    inkSvg = null;
+    inkSpacer = null;
+    if (HOST.rootPosPatched && HOST.prevRoot) {
+      HOST.prevRoot.style.position = "";
+      HOST.rootPosPatched = false;
+    }
   }
 
   function inkColorCss(key) {
@@ -2416,7 +2607,11 @@
   function inkSetActive(on) {
     if (ink.active === on) return;
     ink.active = on;
-    hostUiRoot().classList.toggle("is-ink", on);
+    // 状态类要同时挂到界面壳和正文根上：
+    // 画布在正文根里（否则 pointer-events 不生效），正文也要禁选中。
+    hostStateRoots().forEach(function (el) {
+      el.classList.toggle("is-ink", on);
+    });
     if (inkFab) {
       inkFab.textContent = on ? "✕" : "✏️";
       inkFab.classList.toggle("is-on", on);
@@ -2863,7 +3058,9 @@
   // ---- 初始化 ----
 
   function setupInk() {
-    ensureInkLayer();
+    // page 宿主：正文根要等 attachPage 之后才知道是哪一块，
+    // 这时候建画布会落到整个 document.body 上，所以推迟到 attach / 进画笔模式时再建。
+    if (HOST.kind !== "page") ensureInkLayer();
     inkBuildFab();
     inkBuildBar();
     inkBuildGrid();
@@ -2872,11 +3069,7 @@
     inkApplyBarEdge((state.ui.inkbar && state.ui.inkbar.edge) || "bottom");
     inkUpdateBarState();
 
-    // 画布上的指针事件
-    inkSvg.addEventListener("pointerdown", inkOnPointerDown);
-    inkSvg.addEventListener("pointermove", inkOnPointerMove);
-    inkSvg.addEventListener("pointerup", inkOnPointerUp);
-    inkSvg.addEventListener("pointercancel", inkOnPointerUp);
+    // 画布上的指针事件在 ensureInkLayer() 里绑（画布可能要重建）
 
     // 双击：画笔模式下不落笔，改为放大
     document.addEventListener("dblclick", function (e) {
@@ -3137,9 +3330,14 @@
     window.addEventListener("resize", function () {
       updateSectionProgress();
     });
-    window.addEventListener("beforeunload", function () {
-      if (mode === "plugin") saveNow();
-    });
+    // page 宿主不绑 beforeunload：那是整个 Obsidian 应用在关闭，
+    // 这时候写文件风险大，而进度在滚动时就已经持续保存了。
+    // （page 宿主的「卸载前保存」由 detachPage() 负责）
+    if (HOST.kind !== "page") {
+      window.addEventListener("beforeunload", function () {
+        if (mode === "plugin") saveNow();
+      });
+    }
   }
 
   // ---------------------------------------------------------------- 提示
@@ -3329,9 +3527,11 @@
     setupQuestionEvents();
     setupZoneEvents();
     setupSelectionTool();
-    setupPager();
-    setupTouchFlip();
-    setupImages();
+    // 翻页键 / 触屏分区翻页 / 图片三态：网页专属，
+    // page 宿主默认关掉（见 FEATURES）
+    if (FEATURES.pager) setupPager();
+    if (FEATURES.touchFlip) setupTouchFlip();
+    if (FEATURES.images) setupImages();
     setupScrollEvents();
     setupInk();
     ensureHaltButton();
@@ -3356,22 +3556,65 @@
   function attachPage(opts) {
     opts = opts || {};
     HOST.kind = "page";
-    HOST.root = opts.root || null;
-    HOST.scroll = opts.scroll || null;
+    var newRoot = opts.root || null;
+    var newScroll = opts.scroll || null;
+    // 传输层可以随「当前服务的是哪一篇」一起换（切篇时插件会重新塞一个进来）
     if (opts.transport) HOST.transport = opts.transport;
 
     // 换一篇 → 状态清零，不能把上一篇的答案带到下一篇
     state = freshState();
+    // 临时草稿只在内存里。换篇要清掉；
+    // 但「同一篇被重新接管」（Obsidian 重渲染后画布被清空重建）要留着——
+    // 草稿还在内存里，重新画一遍就行，别让用户白写。
+    if (!opts.keepDraft) ink.draft = [];
+    ink.eraser = false;
+
+    // 画笔模式不能跨篇留着（会挡住新一篇的选中和滚动）
+    if (ink.active) {
+      ink.active = false;
+      hostStateRoots().forEach(function (el) {
+        el.classList.remove("is-ink");
+      });
+      if (inkFab) {
+        inkFab.textContent = "✏️";
+        inkFab.classList.remove("is-on");
+        inkFab.title = "手写标注（点按进入 / 退出画笔模式）";
+      }
+      if (inkBar) inkBar.classList.remove("is-on");
+      if (inkGrid) inkGrid.classList.remove("is-on");
+    }
+
+    // 上一个正文根上我们补过 position:relative，这里还原（别改人家布局）
+    if (HOST.rootPosPatched && HOST.prevRoot && HOST.prevRoot !== newRoot) {
+      HOST.prevRoot.style.position = "";
+      HOST.rootPosPatched = false;
+    }
 
     // 正文根标记换地方
-    if (HOST.prevRoot && HOST.prevRoot !== HOST.root) {
+    if (HOST.prevRoot && HOST.prevRoot !== newRoot) {
       HOST.prevRoot.classList.remove("hvv-content-root");
+      HOST.prevRoot.classList.remove("hvv-root");
+      HOST.prevRoot.classList.remove("is-ink");
     }
-    if (HOST.root) HOST.root.classList.add("hvv-content-root");
-    HOST.prevRoot = HOST.root;
+    HOST.root = newRoot;
+    if (newRoot) {
+      newRoot.classList.add("hvv-content-root");
+      // 也要 .hvv-root：CSS 变量（--hvv-ink 等）得能传到正文根里的手写画布上
+      newRoot.classList.add("hvv-root");
+    }
+    HOST.prevRoot = newRoot;
 
     // 滚动容器换了，滚动监听要跟着换
-    bindScrollTarget(HOST.scroll);
+    HOST.scroll = newScroll;
+    bindScrollTarget(newScroll);
+
+    // 手写画布搬到新的正文根
+    inkRelocate();
+    // 盯着正文根：内容被重渲染时画布会被抹掉，自己挂回去
+    watchInkLayer(HOST.root);
+
+    // 只有真的接上 MD 了，界面壳里才显示触笔和关停开关
+    hostUiRoot().classList.add("is-md");
 
     readMeta();
     sectionRanges = computeSections();
@@ -3383,16 +3626,43 @@
     if (typeof opts.onReady === "function") opts.onReady();
   }
 
-  /** 解除绑定（MD 标签页被关掉，或切到非 MD 视图） */
-  function detachPage() {
-    if (HOST.prevRoot) HOST.prevRoot.classList.remove("hvv-content-root");
+  /**
+   * 解除绑定（MD 标签页被关掉，或切到非 MD 视图）。
+   *
+   * opts.save：要不要在解除前把内存里的状态存回去。
+   *  - 真的切走（换文件、关标签页）：要存，不然最后一段滚动位置丢了。
+   *  - 「同一篇被重新接管」（Obsidian 重渲染后画布被清空）：**不要存**。
+   *    这时存下去会写文件 → 又触发重渲染 → 又要重新接管，转起来了。
+   */
+  function detachPage(opts) {
+    opts = opts || {};
+    var doSave = opts.save !== false;
+    // 卸载前先把内存里的状态存回去（对应 iframe 宿主的 beforeunload）。
+    // 切篇时这次保存属于**旧的那篇**——宿主那边按 attach 时捕获的目标文件写。
+    if (doSave && mode === "plugin" && HOST.root) {
+      try {
+        saveNow();
+      } catch (e) {
+        /* ignore */
+      }
+    }
+    // 画布在正文根里，先摘掉，顺便还原我们改过的 position
+    inkDetach();
+    if (HOST.prevRoot) {
+      HOST.prevRoot.classList.remove("hvv-content-root");
+      HOST.prevRoot.classList.remove("hvv-root");
+      HOST.prevRoot.classList.remove("is-ink");
+    }
     HOST.prevRoot = null;
     HOST.root = null;
     HOST.scroll = null;
     bindScrollTarget(null);
     state = freshState();
-    renderZone();
+    ink.draft = [];
     inkRender();
+    renderZone();
+    hostUiRoot().classList.remove("is-md");
+    mode = "plugin";
   }
 
   /**
@@ -3404,7 +3674,9 @@
    */
   function setPaused(on) {
     HOST.paused = !!on;
-    hostUiRoot().classList.toggle("is-paused", HOST.paused);
+    hostStateRoots().forEach(function (el) {
+      el.classList.toggle("is-paused", HOST.paused);
+    });
     if (haltBtn) {
       haltBtn.classList.toggle("is-paused", HOST.paused);
       haltBtn.textContent = HOST.paused ? "▶" : "⏸";
@@ -3431,6 +3703,26 @@
     attachPage: attachPage,
     detachPage: detachPage,
     setPaused: setPaused,
+    /**
+     * 宿主把进度塞进来（page 宿主不走 postMessage，由宿主直接调）。
+     *
+     * 载荷形状与 iframe 版完全一致：{answers, notes, annotations, marks, strokes, ...}
+     */
+    applyProgressData: function (raw) {
+      handleIncoming(MSG.PROGRESS, raw);
+    },
+    /** 当前服务的是哪一篇（page 宿主）：正文根 / 滚动容器 */
+    getHostRoot: function () {
+      return HOST.root || null;
+    },
+    getHostScroll: function () {
+      return HOST.scroll || null;
+    },
+    isAttached: function () {
+      return HOST.kind === "page" && !!HOST.root;
+    },
+    /** 冒个泡（宿主侧用来报「已保存」之类的短消息） */
+    showStatus: showStatus,
     isPaused: function () {
       return HOST.paused;
     },
@@ -3558,10 +3850,31 @@
     },
   };
 
+  /**
+   * 包一层 try/catch 再启动。
+   *
+   * init() 里有一长串 setup，中途抛异常的话后面全都不会执行——
+   * 而失败往往没有任何提示（页面看起来只是"没反应"），极难排查。
+   * 所以这里把异常显式打到控制台，并在页面上冒一个泡。
+   */
+  function safeInit() {
+    try {
+      init();
+    } catch (err) {
+      var msg = err && err.message ? err.message : String(err);
+      console.error("[html-single-file-view] runtime 初始化失败", err);
+      try {
+        showStatus("插件初始化失败：" + msg, true);
+      } catch (e) {
+        /* ignore */
+      }
+    }
+  }
+
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", init);
+    document.addEventListener("DOMContentLoaded", safeInit);
   } else {
-    init();
+    safeInit();
   }
 })();
 

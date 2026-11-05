@@ -116,6 +116,27 @@
 > 笔画形状本身无语义价值（不做图形识别）；对 AI 有意义的是 `anchor.text`（画在哪一段）
 > 与 `width`/`color`（圈画重点的力度感）。
 
+### 2.1 同一份契约也用在 MD 上（frontmatter `hvv`）
+
+v1.4.0 起，插件对 MD 的阅读视图也生效，数据存在 **MD 自己的 frontmatter `hvv` 字段**里：
+
+```yaml
+---
+title: 我的笔记
+hvv:
+  meta: { schema: html-quiz-progress/v1, updatedAt: '…', updatedBy: device-xxxx }
+  notes: [ { id: n1, text: …, at: '…', tags: [], category: '' } ]
+  annotations: []
+  marks: []
+  strokes: []
+  sectionProgress: { auto-1: { title: 一、这是什么, percent: 100, read: true, at: '…' } }
+---
+```
+
+**字段、合并规则、墓碑语义与 HTML 版完全一致**（共用同一套 `mergeProgress`），
+差别只有存放位置和读写方式（MD 走 `fileManager.processFrontMatter`）。
+完整对照见 [02-实现设计.md §3.1](./02-实现设计.md)。
+
 ---
 
 ## 3. 标记采集规范（怎么标、怎么收）

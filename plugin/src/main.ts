@@ -4,6 +4,7 @@ import type { WorkspaceLeaf } from "obsidian";
 import { HtmlQuizView, VIEW_TYPE_HTML } from "./view.ts";
 import type { HtmlViewHost, SelftestRequest } from "./view.ts";
 import { isPlainObject } from "./protocol.ts";
+import { MdHost } from "./md-host.ts";
 
 export default class HtmlSingleFileViewPlugin
   extends Plugin
@@ -11,6 +12,8 @@ export default class HtmlSingleFileViewPlugin
 {
   private logLines: string[] = [];
   private debugEnabled = false;
+  /** MD 阅读视图的宿主（v1.4.0 起） */
+  private mdHost: MdHost | null = null;
 
   /**
    * 调试日志。默认关闭；开启后写入插件自己的 data.json（标准 Obsidian 插件机制，
@@ -144,6 +147,11 @@ export default class HtmlSingleFileViewPlugin
           const view = leaf.view as HtmlQuizView;
           if (view instanceof HtmlQuizView) view.notifyExternalChange(file.path);
         }
+        this.mdHost?.notifyExternalChange(file.path);
+        // 文件一动，Obsidian 就会重渲染这一篇：
+        // 正文根里的内容会被清空重建，我们挂在里面的手写画布会被抹掉。
+        // 排一个延后复查，真重渲染了就把画布接回去。
+        this.mdHost?.scheduleResync();
       }),
     );
 
@@ -164,9 +172,87 @@ export default class HtmlSingleFileViewPlugin
     this.registerObsidianProtocolHandler("html-view", (params) => {
       void this.handleProtocol(params);
     });
+
+    this.setupMdSupport();
+  }
+
+  /**
+   * MD 阅读视图支持（v1.4.0）。
+   *
+   * 三条线汇到同一个 sync()：
+   *  - post-processor：MD 渲染完了（首次打开、切回来、文件被改）
+   *  - active-leaf-change：用户切标签页
+   *  - layout-change：Obsidian 重排工作区
+   *
+   * sync() 自己是幂等的：同一篇、同一块 DOM 就什么都不做。
+   */
+  private setupMdSupport(): void {
+    this.mdHost = new MdHost({
+      app: this.app,
+      pluginVersion: this.pluginVersion,
+      log: (message) => this.log(message),
+    });
+
+    /**
+     * MD 渲染完成后重新同步一次。
+     *
+     * 注意：阅读视图里后处理拿到的 `el` 是**游离的元素**（Obsidian 先渲染到
+     * 碎片里再挂上去），所以不能用 `el.closest(".markdown-preview-view")`
+     * 判断是不是阅读视图——实测那个判断恒为 false。
+     * 是不是阅读视图、接管哪一篇，都交给 MdHost.sync() 自己判断。
+     */
+    this.registerMarkdownPostProcessor((_el, ctx) => {
+      const active = this.app.workspace.getActiveFile();
+      if (!active || active.path !== ctx.sourcePath) return;
+      this.mdHost?.sync();
+    });
+
+    this.registerEvent(
+      this.app.workspace.on("active-leaf-change", () => {
+        this.mdHost?.sync();
+      }),
+    );
+
+    this.registerEvent(
+      this.app.workspace.on("layout-change", () => {
+        this.mdHost?.sync();
+      }),
+    );
+
+    this.addCommand({
+      id: "toggle-md-plugin",
+      name: "临时开关：MD 阅读视图里的手写与标注",
+      callback: () => {
+        const host = this.mdHost;
+        if (!host) return;
+        const api = (window as unknown as {
+          __HTML_VIEW__?: { isPaused(): boolean; setPaused(on: boolean): boolean };
+        }).__HTML_VIEW__;
+        if (!api) {
+          new Notice("MD 宿主还没就绪，先打开一篇 MD 的阅读视图。");
+          return;
+        }
+        const now = api.setPaused(!api.isPaused());
+        new Notice(
+          now
+            ? "已临时关停：MD 正文现在可以正常选中和编辑。"
+            : "已恢复：手写与标注重新生效。",
+        );
+      },
+    });
+
+    this.addCommand({
+      id: "clean-md-tombstones",
+      name: "清理当前 MD 进度里的已删除条目",
+      callback: () => {
+        void this.mdHost?.cleanTombstones();
+      },
+    });
   }
 
   onunload(): void {
+    this.mdHost?.dispose();
+    this.mdHost = null;
     this.app.workspace.detachLeavesOfType(VIEW_TYPE_HTML);
   }
 

@@ -1,9 +1,9 @@
 {
   "id": "html-single-file-view",
   "name": "HTML 单文件视图",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "minAppVersion": "1.5.0",
-  "description": "以自定义视图打开单文件 HTML（内嵌 base64 资源），把答题、批注、笔记、手写涂鸦与阅读进度回写进 HTML 文件自身，靠 Obsidian 同步实现跨设备接力。",
+  "description": "以自定义视图打开单文件 HTML（内嵌 base64 资源），把答题、批注、笔记、手写涂鸦与阅读进度回写进 HTML 文件自身；MD 阅读视图同样支持，数据写进 frontmatter。靠 Obsidian 同步实现跨设备接力。",
   "author": "Frank",
   "isDesktopOnly": false
 }
