@@ -36,11 +36,12 @@ jobs:
 
       - name: Check tag matches manifest version
         run: |
-          TAG="${GITHUB_REF_NAME}"
+          # tag 允许带 v 前缀（v1.3.0），BRAT 与社区插件规范都认这种写法
+          TAG="${GITHUB_REF_NAME#v}"
           MANIFEST_VERSION="$(node -p "require('./plugin/manifest.json').version")"
           echo "tag=$TAG manifest=$MANIFEST_VERSION"
           if [ "$TAG" != "$MANIFEST_VERSION" ]; then
-            echo "::error::Release tag ($TAG) 与 manifest.json 的 version ($MANIFEST_VERSION) 必须一致"
+            echo "::error::Release tag ($GITHUB_REF_NAME) 与 manifest.json 的 version ($MANIFEST_VERSION) 必须一致"
             exit 1
           fi
 
